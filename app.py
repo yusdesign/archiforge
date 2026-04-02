@@ -126,6 +126,29 @@ with st.sidebar:
     st.markdown("---")
     generate_btn = st.button("🚀 Generate Architecture", use_container_width=True, type="primary")
 
+    # SVG Export options
+    st.markdown("### 📄 Export Options")
+    export_format = st.selectbox("Export format", ["SVG", "PNG", "PDF"])
+
+    if st.button("📥 Export Floor Plan as SVG", use_container_width=True):
+        if st.session_state.generated:
+            from generator.svg_export import SVGFloorPlanExporter
+            exporter = SVGFloorPlanExporter()
+            svg_string = exporter.export(
+                st.session_state.rooms,
+                st.session_state.adj_graph,
+                add_dimensions=True,
+                add_labels=True,
+                add_hatching=True
+            )
+        
+            st.download_button(
+                label="Download SVG",
+                data=svg_string,
+                file_name=f"floor_plan_{datetime.now().strftime('%Y%m%d_%H%M%S')}.svg",
+                mime="image/svg+xml"
+            )
+
 # Main content area
 st.markdown('<div class="main-header">🏗️ AI Architectural Generator</div>', unsafe_allow_html=True)
 st.markdown("*Generate novel, buildable floor plans with constraint satisfaction and B-rep validation*")
