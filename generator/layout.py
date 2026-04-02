@@ -29,6 +29,10 @@ class ProceduralLayoutSolver:
     def solve(self, adjacency_graph: nx.Graph,
               room_sizes: Dict[str, Tuple[float, float]] = None) -> Dict[str, Polygon]:
         """Generate rooms that share walls based on adjacency graph"""
+                 
+        # Add random offset to room positions
+        random_offset_x = random.uniform(-1, 1) * self.config.building_width * 0.05
+        random_offset_y = random.uniform(-1, 1) * self.config.building_height * 0.05 
         
         # Sort rooms by importance
         room_list = self._prioritize_rooms(list(adjacency_graph.nodes()))
