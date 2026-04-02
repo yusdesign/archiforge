@@ -2,13 +2,17 @@
 Interactive Architectural Generator Web App
 Deployable on Streamlit Cloud or GitHub Pages with Pyodide
 """
+
 import streamlit as st
 import networkx as nx
+import numpy as np
+
 import matplotlib.pyplot as plt
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import plotly.express as px
 import pandas as pd
 from io import StringIO
 import base64
