@@ -110,6 +110,30 @@ with st.sidebar:
     
     wall_thickness = st.slider("Wall thickness (cm)", 10, 30, 15) / 100.0
     ceiling_height = st.slider("Ceiling height (m)", 2.4, 4.0, 2.8)
+
+    # Door settings
+    st.markdown("### 🚪 Door Configuration")
+    col1, col2 = st.columns(2)
+    door_width = col1.slider("Door width (m)", 0.7, 1.2, 0.9)
+    door_height = col2.slider("Door height (m)", 1.8, 2.4, 2.1)
+
+    door_types = st.radio("Door type", ["Single", "Double", "Sliding"], horizontal=True)
+
+    # Window settings
+    st.markdown("### 🪟 Window Configuration")
+    col1, col2 = st.columns(2)
+    window_width = col1.slider("Window width (m)", 0.8, 2.0, 1.2)
+    window_height = col2.slider("Window height (m)", 0.8, 1.5, 1.0)
+
+    # Update brep config
+    brep_config = BRepConfig(
+        wall_thickness=wall_thickness,
+        ceiling_height=ceiling_height,
+        door_width=door_width,
+        door_height=door_height,
+        window_width=window_width,
+        window_height=window_height
+    )
     
     # Generation button
     st.markdown("---")
