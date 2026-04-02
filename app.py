@@ -228,14 +228,23 @@ if st.session_state.generated and st.session_state.rooms:
         """, unsafe_allow_html=True)
     
     with col4:
-        volume = validity.get('statistics', {}).get('volume_m3', 0)
-        st.markdown(f"""
-        <div class="metric-card">
-            <h3>📦</h3>
-            <h2>{volume:.1f} m³</h2>
-            <p>Volume</p>
-        </div>
-        """, unsafe_allow_html=True)
+        volume = validation.get('statistics', {}).get('volume_m3', 0)
+        if volume > 0:
+            st.markdown(f"""
+            <div class="metric-card">
+                <h3>📦</h3>
+                <h2>{volume:.1f} m³</h2>
+                <p>Total Volume</p>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div class="metric-card">
+                <h3>📦</h3>
+                <h2>⚠️</h2>
+                <p>Volume Error</p>
+            </div>
+            """, unsafe_allow_html=True)
     
     # Tabs for different views
     tab1, tab2, tab3, tab4 = st.tabs(["📐 Floor Plan", "🏗️ 3D Model", "🔍 Validation", "📊 Analysis"])
