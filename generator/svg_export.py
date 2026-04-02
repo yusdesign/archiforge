@@ -1,5 +1,5 @@
 """
-Professional SVG floor plan generator - Working Version
+Professional SVG floor plan generator - Fixed Version
 """
 import math
 from datetime import datetime
@@ -50,6 +50,7 @@ class SVGFloorPlanExporter:
         svg_lines.append('.wall-interior { stroke: #7f8c8d; stroke-width: 1.2; fill: none; }')
         svg_lines.append('.hatch { fill: #ecf0f1; stroke: none; }')
         svg_lines.append('.label { font-family: Arial, sans-serif; font-size: 11px; font-weight: bold; fill: #2c3e50; text-anchor: middle; }')
+        svg_lines.append('.label-small { font-family: Arial, sans-serif; font-size: 9px; font-weight: bold; fill: #2c3e50; text-anchor: middle; }')
         svg_lines.append('.area { font-family: Arial, sans-serif; font-size: 9px; fill: #7f8c8d; text-anchor: middle; }')
         svg_lines.append('.dimension { stroke: #e74c3c; stroke-width: 1; fill: none; }')
         svg_lines.append('.dimension-text { font-family: Arial, sans-serif; font-size: 9px; fill: #e74c3c; text-anchor: middle; }')
@@ -90,12 +91,16 @@ class SVGFloorPlanExporter:
                     sy2 = y2 * self.scale + self.offset_y
                     svg_lines.append(f'<line x1="{sx1:.2f}" y1="{sy1:.2f}" x2="{sx2:.2f}" y2="{sy2:.2f}" class="wall"/>')
                 
-                # Room label
-                if add_labels:
+                # Room label (only for rooms > 8 m² to avoid clutter)
+                if add_labels and poly.area > 8:
                     cx = poly.centroid.x * self.scale + self.offset_x
                     cy = poly.centroid.y * self.scale + self.offset_y
                     svg_lines.append(f'<text x="{cx:.2f}" y="{cy-5:.2f}" class="label">{name.capitalize()}</text>')
                     svg_lines.append(f'<text x="{cx:.2f}" y="{cy+8:.2f}" class="area">{poly.area:.1f} m²</text>')
+                elif add_labels and poly.area <= 8:
+                    cx = poly.centroid.x * self.scale + self.offset_x
+                    cy = poly.centroid.y * self.scale + self.offset_y
+                    svg_lines.append(f'<text x="{cx:.2f}" y="{cy:.2f}" class="label-small">{name[:3]}</text>')
         
         # Add dimension lines
         if add_dimensions:
@@ -154,3 +159,17 @@ class SVGFloorPlanExporter:
         svg_lines.append('</svg>')
         
         return '\n'.join(svg_lines)
+    
+    def _draw_room_labels(self, rooms: Dict[str, Polygon], offset_x: float, offset_y: float):
+        """Helper method for room labels - kept for compatibility"""
+        # This method is now integrated into export() above
+        pass
+    
+    def _draw_floor_hatching(self, rooms: Dict[str, Polygon], offset_x: float, offset_y: float):
+        """Helper method for hatching - kept for compatibility"""
+        pass
+    
+    def _draw_dimensions(self, bounds: Tuple[float, float, float, float], rooms: Dict[str, Polygon], 
+                        offset_x: float, offset_y: float):
+        """Helper method for dimensions - kept for compatibility"""
+        pass
