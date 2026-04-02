@@ -5,6 +5,9 @@ import cadquery as cq
 from cadquery import Workplane, Solid, Face, Shell
 from typing import Dict, List, Tuple, Optional, Any
 from shapely.geometry import Polygon as ShapelyPolygon
+from shapely.geometry import Polygon, Point, box, LineString
+from shapely.ops import unary_union
+
 import numpy as np
 from dataclasses import dataclass
 
