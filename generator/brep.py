@@ -1,269 +1,199 @@
 """
-B-rep (Boundary Representation) construction and validation
+B-rep (Boundary Representation) construction and validation using trimesh
 """
-import cadquery as cq
-from cadquery import Workplane, Solid, Face, Shell
+import trimesh
+import numpy as np
 from typing import Dict, List, Tuple, Optional, Any
 from shapely.geometry import Polygon as ShapelyPolygon
-from shapely.geometry import Polygon, Point, box, LineString
 from shapely.ops import unary_union
-
-import numpy as np
 from dataclasses import dataclass
 
 @dataclass
 class BRepConfig:
-    wall_thickness: float = 0.15  # meters (150mm typical)
-    floor_thickness: float = 0.20  # 200mm slab
-    ceiling_height: float = 2.8  # meters
+    wall_thickness: float = 0.15
+    floor_thickness: float = 0.20
+    ceiling_height: float = 2.8
     foundation_depth: float = 0.5
     roof_overhang: float = 0.5
     material: str = "concrete"
 
 class BRepBuilder:
-    """Construct 3D solids from 2D room polygons"""
+    """Construct 3D meshes from 2D room polygons using trimesh"""
     
     def __init__(self, config: BRepConfig = None):
         self.config = config or BRepConfig()
         
     def build_building(self, rooms_2d: Dict[str, ShapelyPolygon],
                       add_roof: bool = True,
-                      add_foundation: bool = True) -> cq.Solid:
-        """
-        Build complete 3D building from 2D room layout
+                      add_foundation: bool = True) -> trimesh.Trimesh:
+        """Build complete 3D building mesh"""
+        meshes = []
         
-        Returns:
-            CadQuery Solid object
-        """
-        # Build each component
-        foundation = self._build_foundation(rooms_2d) if add_foundation else None
+        # Foundation
+        if add_foundation:
+            foundation = self._build_foundation(rooms_2d)
+            if foundation:
+                meshes.append(foundation)
+        
+        # Floors
         floors = self._build_floors(rooms_2d)
+        if floors:
+            meshes.append(floors)
+        
+        # Walls
         walls = self._build_walls(rooms_2d)
-        roof = self._build_roof(rooms_2d) if add_roof else None
+        if walls:
+            meshes.append(walls)
         
-        # Combine everything
-        building = floors
-        building = building.union(walls)
+        # Roof
+        if add_roof:
+            roof = self._build_roof(rooms_2d)
+            if roof:
+                meshes.append(roof)
         
-        if foundation:
-            building = building.union(foundation)
-        if roof:
-            building = building.union(roof)
+        if not meshes:
+            return trimesh.Trimesh()
         
-        return building.val()
+        return trimesh.util.concatenate(meshes)
     
-    def _build_foundation(self, rooms_2d: Dict[str, ShapelyPolygon]) -> cq.Solid:
+    def _build_foundation(self, rooms_2d: Dict[str, ShapelyPolygon]) -> Optional[trimesh.Trimesh]:
         """Build foundation slab"""
-        # Union all room polygons
-        from shapely.ops import unary_union
+        footprint = unary_union(list(rooms_2d.values()))
+        return self._extrude_polygon(footprint, self.config.foundation_depth, -self.config.foundation_depth)
+    
+    def _build_floors(self, rooms_2d: Dict[str, ShapelyPolygon]) -> Optional[trimesh.Trimesh]:
+        """Build floor slabs"""
+        footprint = unary_union(list(rooms_2d.values()))
+        return self._extrude_polygon(footprint, self.config.floor_thickness, 0)
+    
+    def _build_walls(self, rooms_2d: Dict[str, ShapelyPolygon]) -> Optional[trimesh.Trimesh]:
+        """Build exterior walls"""
         footprint = unary_union(list(rooms_2d.values()))
         
-        # Extrude to create foundation
-        foundation = self._polygon_to_solid(footprint, 
-                                           height=self.config.foundation_depth,
-                                           offset_z=-self.config.foundation_depth)
-        return foundation
+        # Get exterior boundary and extrude
+        wall_mesh = self._create_wall_from_polygon(footprint, self.config.wall_thickness, self.config.ceiling_height)
+        return wall_mesh
     
-    def _build_floors(self, rooms_2d: Dict[str, ShapelyPolygon]) -> cq.Solid:
-        """Build floor slabs for each level"""
-        from shapely.ops import unary_union
-        footprint = unary_union(list(rooms_2d.values()))
-        
-        floor = self._polygon_to_solid(footprint,
-                                      height=self.config.floor_thickness,
-                                      offset_z=0)
-        return floor
-    
-    def _build_walls(self, rooms_2d: Dict[str, ShapelyPolygon]) -> cq.Solid:
-        """Build exterior and interior walls"""
-        from shapely.ops import unary_union, polygonize
-        from shapely.geometry import MultiLineString
-        
-        # Get exterior boundary
-        footprint = unary_union(list(rooms_2d.values()))
-        exterior_boundary = footprint.boundary
-        
-        # Get interior boundaries (between rooms)
-        all_walls = []
-        
-        # Exterior walls
-        exterior_wall = self._create_wall_from_polygon(footprint, 
-                                                       offset=-self.config.wall_thickness/2,
-                                                       is_exterior=True)
-        all_walls.append(exterior_wall)
-        
-        # Interior walls (between adjacent rooms)
-        room_names = list(rooms_2d.keys())
-        for i in range(len(room_names)):
-            for j in range(i+1, len(room_names)):
-                poly_i = rooms_2d[room_names[i]]
-                poly_j = rooms_2d[room_names[j]]
-                
-                # Check if they share a boundary
-                intersection = poly_i.intersection(poly_j)
-                if not intersection.is_empty and intersection.length > 0.1:
-                    # Create wall along shared boundary
-                    wall = self._create_wall_between_polygons(poly_i, poly_j)
-                    if wall:
-                        all_walls.append(wall)
-        
-        # Union all walls
-        if all_walls:
-            result = all_walls[0]
-            for wall in all_walls[1:]:
-                result = result.union(wall)
-            return result
-        return cq.Solid.makeBox(0, 0, 0)
-    
-    def _create_wall_from_polygon(self, polygon: ShapelyPolygon, 
-                                  offset: float,
-                                  is_exterior: bool = True) -> cq.Solid:
+    def _create_wall_from_polygon(self, polygon: ShapelyPolygon, thickness: float, height: float) -> Optional[trimesh.Trimesh]:
         """Create walls along polygon boundary"""
-        walls = []
+        meshes = []
         coords = list(polygon.exterior.coords)
         
         for i in range(len(coords)-1):
             p1 = coords[i]
             p2 = coords[i+1]
             
-            # Wall segment length
+            # Create box for this wall segment
             length = np.sqrt((p2[0]-p1[0])**2 + (p2[1]-p1[1])**2)
+            if length < 0.01:
+                continue
             
-            # Create wall as box
-            wall = cq.Solid.makeBox(length, 
-                                   self.config.wall_thickness,
-                                   self.config.ceiling_height)
+            # Create box centered at origin
+            box = trimesh.primitives.Box(extents=[length, thickness, height])
             
-            # Rotate and position
-            angle = np.degrees(np.arctan2(p2[1]-p1[1], p2[0]-p1[0]))
+            # Rotate to align with wall direction
+            angle = np.arctan2(p2[1]-p1[1], p2[0]-p1[0])
+            rotation = trimesh.transformations.rotation_matrix(angle, [0, 0, 1])
+            box.apply_transform(rotation)
+            
+            # Position at midpoint
             center_x = (p1[0] + p2[0]) / 2
             center_y = (p1[1] + p2[1]) / 2
+            translation = trimesh.transformations.translation_matrix([center_x, center_y, height/2])
+            box.apply_transform(translation)
             
-            # Move to position
-            wall = wall.move(cq.Vector(center_x, center_y, 0))
-            wall = wall.rotate(cq.Vector(0,0,0), cq.Vector(0,0,1), angle)
-            
-            # Offset outward for exterior walls
-            if is_exterior:
-                normal_x = -(p2[1]-p1[1])  # Perpendicular
-                normal_y = (p2[0]-p1[0])
-                norm = np.sqrt(normal_x**2 + normal_y**2)
-                if norm > 0:
-                    normal_x /= norm
-                    normal_y /= norm
-                    wall = wall.translate(cq.Vector(normal_x * offset, 
-                                                    normal_y * offset, 0))
-            
-            walls.append(wall)
+            meshes.append(box)
         
-        # Union all wall segments
-        if walls:
-            result = walls[0]
-            for wall in walls[1:]:
-                result = result.fuse(wall)
-            return result
-        return cq.Solid.makeBox(0, 0, 0)
-    
-    def _create_wall_between_polygons(self, poly1: ShapelyPolygon, 
-                                     poly2: ShapelyPolygon) -> Optional[cq.Solid]:
-        """Create wall along shared boundary between two rooms"""
-        intersection = poly1.intersection(poly2)
-        
-        if intersection.is_empty or not hasattr(intersection, 'coords'):
+        if not meshes:
             return None
-        
-        # Get shared edge coordinates
-        coords = list(intersection.coords)
-        if len(coords) < 2:
-            return None
-        
-        p1 = coords[0]
-        p2 = coords[1]
-        
-        length = np.sqrt((p2[0]-p1[0])**2 + (p2[1]-p1[1])**2)
-        
-        # Create wall
-        wall = cq.Solid.makeBox(length,
-                               self.config.wall_thickness,
-                               self.config.ceiling_height)
-        
-        # Position
-        angle = np.degrees(np.arctan2(p2[1]-p1[1], p2[0]-p1[0]))
-        center_x = (p1[0] + p2[0]) / 2
-        center_y = (p1[1] + p2[1]) / 2
-        
-        wall = wall.move(cq.Vector(center_x, center_y, 0))
-        wall = wall.rotate(cq.Vector(0,0,0), cq.Vector(0,0,1), angle)
-        
-        return wall
+        return trimesh.util.concatenate(meshes)
     
-    def _build_roof(self, rooms_2d: Dict[str, ShapelyPolygon]) -> cq.Solid:
+    def _build_roof(self, rooms_2d: Dict[str, ShapelyPolygon]) -> Optional[trimesh.Trimesh]:
         """Build simple pitched roof"""
-        from shapely.ops import unary_union
         footprint = unary_union(list(rooms_2d.values()))
-        
-        # Create roof as extruded triangle (simplified)
         bounds = footprint.bounds
         width = bounds[2] - bounds[0]
         depth = bounds[3] - bounds[1]
         
-        # Roof pitch (30 degrees)
-        pitch_height = width * 0.3
+        # Create a simple pyramid roof
+        roof_height = width * 0.3
         
-        # Create roof using loft
-        base = cq.Workplane().rect(width + self.config.roof_overhang * 2,
-                                   depth + self.config.roof_overhang * 2)
+        # Vertices of roof
+        x_center = (bounds[0] + bounds[2]) / 2
+        y_center = (bounds[1] + bounds[3]) / 2
         
-        # Ridge line
-        ridge = cq.Workplane().rect(width * 0.2, depth).translate((0, 0, pitch_height))
+        # Create roof as a pyramid
+        vertices = [
+            [bounds[0] - self.config.roof_overhang, bounds[1] - self.config.roof_overhang, self.config.ceiling_height],
+            [bounds[2] + self.config.roof_overhang, bounds[1] - self.config.roof_overhang, self.config.ceiling_height],
+            [bounds[2] + self.config.roof_overhang, bounds[3] + self.config.roof_overhang, self.config.ceiling_height],
+            [bounds[0] - self.config.roof_overhang, bounds[3] + self.config.roof_overhang, self.config.ceiling_height],
+            [x_center, y_center, self.config.ceiling_height + roof_height]
+        ]
         
-        # Loft to create roof
-        roof = base.loft(ridge, combine=False)
+        faces = [
+            [0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4],  # Sides
+            [0, 1, 2, 3]  # Base (optional)
+        ]
         
-        # Position roof
-        roof = roof.translate((bounds[0] + width/2, bounds[1] + depth/2, self.config.ceiling_height))
-        
-        return roof.val()
+        roof = trimesh.Trimesh(vertices=vertices, faces=faces)
+        return roof
     
-    def _polygon_to_solid(self, polygon: ShapelyPolygon, 
-                         height: float, 
-                         offset_z: float = 0) -> cq.Solid:
-        """Convert Shapely polygon to CadQuery solid by extrusion"""
-        # Get polygon vertices
+    def _extrude_polygon(self, polygon: ShapelyPolygon, height: float, z_offset: float = 0) -> Optional[trimesh.Trimesh]:
+        """Extrude a shapely polygon to a 3D mesh"""
+        from shapely.geometry import Polygon
+        import trimesh.creation
+        
+        if polygon.is_empty:
+            return None
+        
+        # Get boundary vertices
         coords = list(polygon.exterior.coords)
+        vertices_2d = np.array(coords[:-1])  # Remove duplicate last point
         
-        # Create wire
-        wire = cq.Workplane().polyline(coords).close()
+        # Create bottom and top vertices
+        bottom_vertices = np.hstack([vertices_2d, np.zeros((len(vertices_2d), 1)) + z_offset])
+        top_vertices = np.hstack([vertices_2d, np.zeros((len(vertices_2d), 1)) + z_offset + height])
         
-        # Extrude
-        solid = wire.extrude(height)
+        # Combine vertices
+        all_vertices = np.vstack([bottom_vertices, top_vertices])
         
-        # Move to correct Z height
-        solid = solid.translate((0, 0, offset_z))
+        # Create faces (triangulated)
+        n = len(vertices_2d)
+        faces = []
         
-        return solid.val()
-    
-    def export_to_step(self, solid: cq.Solid, filename: str):
-        """Export B-rep to STEP file for CAD interoperability"""
-        cq.exporters.export(solid, filename)
-    
-    def export_to_stl(self, solid: cq.Solid, filename: str):
-        """Export to STL for 3D printing"""
-        cq.exporters.export(solid, filename)
+        # Side faces
+        for i in range(n):
+            j = (i + 1) % n
+            faces.append([i, j, j + n])
+            faces.append([i, j + n, i + n])
+        
+        # Bottom face (triangulated)
+        bottom_center = np.mean(bottom_vertices, axis=0)
+        bottom_vertices_with_center = np.vstack([bottom_vertices, bottom_center])
+        for i in range(n):
+            j = (i + 1) % n
+            faces.append([i, j, n + n])
+        
+        # Top face (triangulated)
+        top_center = np.mean(top_vertices, axis=0)
+        top_vertices_with_center = np.vstack([top_vertices, top_center])
+        # Adjust indices for top faces
+        for i in range(n):
+            j = (i + 1) % n
+            faces.append([i + n, j + n, n + n + 1])
+        
+        mesh = trimesh.Trimesh(vertices=all_vertices, faces=faces)
+        return mesh
 
 class BRepValidator:
-    """Validate B-rep geometry for constructability"""
+    """Validate 3D mesh geometry"""
     
     def __init__(self, tolerance: float = 1e-6):
         self.tolerance = tolerance
         
-    def validate(self, solid: cq.Solid) -> Dict[str, Any]:
-        """
-        Comprehensive B-rep validation
-        
-        Returns:
-            Dictionary with validation results and repair suggestions
-        """
+    def validate(self, mesh: trimesh.Trimesh) -> Dict[str, Any]:
+        """Comprehensive mesh validation"""
         results = {
             'is_valid': True,
             'errors': [],
@@ -272,131 +202,63 @@ class BRepValidator:
             'repair_suggestions': []
         }
         
-        # Check 1: Manifold geometry
-        if not self._check_manifold(solid):
+        # Check if mesh is empty
+        if mesh.is_empty:
             results['is_valid'] = False
-            results['errors'].append("Non-manifold geometry detected")
-            results['repair_suggestions'].append("Use cq.Solid.fix() to repair")
+            results['errors'].append("Empty mesh")
+            return results
         
-        # Check 2: Self-intersections
-        intersections = self._check_self_intersections(solid)
-        if intersections:
-            results['is_valid'] = False
-            results['errors'].append(f"Found {len(intersections)} self-intersections")
-            results['repair_suggestions'].append("Apply Boolean union with tolerance")
-        
-        # Check 3: Minimum thickness
-        min_thick = self._check_min_thickness(solid)
-        if min_thick < 0.05:  # Less than 5cm
-            results['warnings'].append(f"Minimum thickness {min_thick:.3f}m < 0.05m")
-            results['repair_suggestions'].append("Increase wall thickness")
-        
-        # Check 4: Volume statistics
-        volume = solid.Volume()
+        # Check volume
+        volume = mesh.volume
         if volume <= 0:
             results['is_valid'] = False
             results['errors'].append("Zero or negative volume")
+        else:
+            results['statistics']['volume_m3'] = volume
         
-        results['statistics'] = {
-            'volume_m3': volume,
-            'surface_area_m2': solid.SurfaceArea(),
-            'bounding_box': self._get_bounding_box(solid),
-            'face_count': len(solid.Faces()),
-            'edge_count': len(solid.Edges()),
-            'vertex_count': len(solid.Vertices())
-        }
+        # Check if watertight/manifold
+        if not mesh.is_watertight:
+            results['warnings'].append("Mesh is not watertight (has holes)")
+            results['repair_suggestions'].append("Use trimesh.repair.fill_holes()")
         
-        # Check 5: Planarity of faces
-        non_planar = self._check_face_planarity(solid)
-        if non_planar:
-            results['warnings'].append(f"Found {len(non_planar)} non-planar faces")
+        # Check for self-intersections
+        if hasattr(mesh, 'process'):
+            if mesh.process.check_intersections():
+                results['warnings'].append("Self-intersections detected")
+        
+        # Statistics
+        results['statistics'].update({
+            'surface_area_m2': mesh.area,
+            'face_count': len(mesh.faces),
+            'vertex_count': len(mesh.vertices),
+            'edge_count': len(mesh.edges),
+            'bounding_box': {
+                'dx': mesh.bounds[1][0] - mesh.bounds[0][0],
+                'dy': mesh.bounds[1][1] - mesh.bounds[0][1],
+                'dz': mesh.bounds[1][2] - mesh.bounds[0][2]
+            }
+        })
+        
+        # Check minimum thickness (approximate via bounding box)
+        bbox = results['statistics']['bounding_box']
+        min_thick = min(bbox['dx'], bbox['dy'], bbox['dz'])
+        if min_thick < 0.05:
+            results['warnings'].append(f"Minimum thickness {min_thick:.3f}m < 0.05m")
         
         return results
     
-    def _check_manifold(self, solid: cq.Solid) -> bool:
-        """Check if solid is manifold (every edge has exactly 2 faces)"""
-        try:
-            # CadQuery internal check
-            return solid.isValid()
-        except:
-            return False
-    
-    def _check_self_intersections(self, solid: cq.Solid) -> List:
-        """Detect self-intersections in the solid"""
-        intersections = []
+    def auto_repair(self, mesh: trimesh.Trimesh) -> trimesh.Trimesh:
+        """Attempt automatic repairs"""
+        repaired = mesh.copy()
         
-        # Check each face against others
-        faces = list(solid.Faces())
-        for i in range(len(faces)):
-            for j in range(i+1, len(faces)):
-                if faces[i].intersect(faces[j]).Area() > self.tolerance:
-                    intersections.append((i, j))
+        # Fill holes
+        if not repaired.is_watertight:
+            repaired = trimesh.repair.fill_holes(repaired)
         
-        return intersections
-    
-    def _check_min_thickness(self, solid: cq.Solid) -> float:
-        """Estimate minimum thickness using sampling"""
-        # Sample points on surface and compute distance to opposite face
-        # Simplified: use bounding box smallest dimension
-        bbox = self._get_bounding_box(solid)
-        min_thickness = min(bbox['dx'], bbox['dy'], bbox['dz'])
+        # Remove duplicate vertices
+        repaired.merge_vertices()
         
-        return min_thickness
-    
-    def _check_face_planarity(self, solid: cq.Solid) -> List[int]:
-        """Check if all faces are planar"""
-        non_planar = []
-        
-        for i, face in enumerate(solid.Faces()):
-            # Check if all vertices lie on same plane
-            vertices = list(face.Vertices())
-            if len(vertices) >= 3:
-                # Compute plane from first 3 vertices
-                p1 = vertices[0].Center()
-                p2 = vertices[1].Center()
-                p3 = vertices[2].Center()
-                
-                # Normal vector
-                v1 = p2 - p1
-                v2 = p3 - p1
-                normal = v1.cross(v2)
-                
-                # Check all other vertices
-                for v in vertices[3:]:
-                    v_rel = v.Center() - p1
-                    distance = abs(v_rel.dot(normal) / normal.Length)
-                    if distance > self.tolerance:
-                        non_planar.append(i)
-                        break
-        
-        return non_planar
-    
-    def _get_bounding_box(self, solid: cq.Solid) -> Dict[str, float]:
-        """Get bounding box dimensions"""
-        bbox = solid.BoundingBox()
-        return {
-            'xmin': bbox.xmin,
-            'xmax': bbox.xmax,
-            'ymin': bbox.ymin,
-            'ymax': bbox.ymax,
-            'zmin': bbox.zmin,
-            'zmax': bbox.zmax,
-            'dx': bbox.xmax - bbox.xmin,
-            'dy': bbox.ymax - bbox.ymin,
-            'dz': bbox.zmax - bbox.zmin
-        }
-    
-    def auto_repair(self, solid: cq.Solid) -> cq.Solid:
-        """Attempt automatic repairs on invalid geometry"""
-        repaired = solid
-        
-        # Fix 1: Remove duplicate vertices
-        repaired = repaired.clean()
-        
-        # Fix 2: Defeature (remove small artifacts)
-        repaired = repaired.defeature()
-        
-        # Fix 3: Sew faces if needed
-        # (CadQuery specific)
+        # Remove degenerate faces
+        repaired.remove_degenerate_faces()
         
         return repaired
