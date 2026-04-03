@@ -103,7 +103,7 @@ if generate_btn and selected_rooms:
                 random_seed=st.session_state.random_seed
             )
             layout_solver = RoomLayoutSolverILP(layout_config)
-            rooms_2d = layout_solver.solve(adj_graph, None)
+            rooms_2d = layout_solver.solve(adj_graph, room_sizes=None)
             
             # Build B-rep
             brep_config = BRepConfig(
