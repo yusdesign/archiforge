@@ -17,7 +17,7 @@ import random
 
 # Import generator modules
 from generator.grammar import ArchitecturalGrammar, GrammarOptimizer
-from generator.layout_sat import RoomLayoutSolverSAT, LayoutConfig
+from generator.layout_ilp import RoomLayoutSolverILP, LayoutConfig
 from generator.constraints import RoomConstraint
 from generator.brep import BRepBuilder, BRepValidator, BRepConfig
 from generator.svg_export import SVGFloorPlanExporter
