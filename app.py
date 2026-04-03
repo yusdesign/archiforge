@@ -143,6 +143,10 @@ if generate_btn and selected_rooms:
             
             # Use template solver
             layout_solver = RoomLayoutSolverKDTree(layout_config)
+            user_room_sizes = {}
+            for room in selected_rooms:
+                user_room_sizes[room] = room_sizes.get(room, 12)  # from sidebar number inputs
+                
             rooms_2d = layout_solver.solve(adj_graph, room_sizes)
             
             # Generate professional SVG blueprint
