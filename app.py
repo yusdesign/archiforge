@@ -19,7 +19,7 @@ import random
 import math
 
 # Import generator modules
-from generator.layout_template import RoomLayoutSolverTemplate, LayoutConfig
+from generator.layout_kdtree import RoomLayoutSolverKDTree, LayoutConfig
 from generator.grammar import ArchitecturalGrammar, GrammarOptimizer
 from generator.svg_export_blueprint import SVGBlueprintExporter
 
@@ -142,7 +142,7 @@ if generate_btn and selected_rooms:
             )
             
             # Use template solver
-            layout_solver = RoomLayoutSolverTemplate(layout_config)
+            layout_solver = RoomLayoutSolverKDTree(layout_config)
             rooms_2d = layout_solver.solve(adj_graph, room_sizes)
             
             # Generate professional SVG blueprint
