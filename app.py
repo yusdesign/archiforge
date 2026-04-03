@@ -17,7 +17,7 @@ import random
 
 # Import generator modules
 from generator.grammar import ArchitecturalGrammar, GrammarOptimizer
-from generator.layout_ilp import RoomLayoutSolverILP, LayoutConfig
+from generator.layout_hybrid import RoomLayoutSolverHybrid, LayoutConfig
 from generator.constraints import RoomConstraint
 from generator.brep import BRepBuilder, BRepValidator, BRepConfig
 from generator.svg_export import SVGFloorPlanExporter
@@ -102,7 +102,7 @@ if generate_btn and selected_rooms:
                 wall_thickness=wall_thickness,
                 random_seed=st.session_state.random_seed
             )
-            layout_solver = RoomLayoutSolverILP(layout_config)
+            layout_solver = RoomLayoutSolverHybrid(layout_config)
             rooms_2d = layout_solver.solve(adj_graph, room_sizes=None)
             
             # Build B-rep
