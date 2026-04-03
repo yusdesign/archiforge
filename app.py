@@ -73,6 +73,19 @@ if 'random_seed' not in st.session_state:
 
 # Sidebar
 with st.sidebar:
+    # In sidebar, add:
+    st.markdown("### 🌿 Branching Strategy")
+    strategy_options = {
+        "Area-based": "area",
+        "Aspect-based": "aspect", 
+        "Connectivity-based": "connect",
+        "Random": "random",
+        "Hybrid": "hybrid"
+    }
+    selected_strategy = st.selectbox("Partition strategy", list(strategy_options.keys()))
+    strategy_value = strategy_options[selected_strategy]
+
+
     st.markdown("## 🎛️ Blueprint Controls")
     
     # Random seed control
@@ -138,7 +151,8 @@ if generate_btn and selected_rooms:
                 building_width=building_width,
                 building_height=building_height,
                 wall_thickness=0.15,
-                random_seed=st.session_state.random_seed
+                random_seed=st.session_state.random_seed,
+                strategy=strategy_value
             )
             
             # Use template solver
